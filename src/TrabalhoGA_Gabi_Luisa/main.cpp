@@ -59,7 +59,7 @@ out vec3 Normal;
 
 void main() {
     FragPos = vec3(model * vec4(position, 1.0));
-    Normal = mat3(transpose(inverse(model))) * normal;  
+    Normal = normalize(mat3(transpose(inverse(model))) * normal);  
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }
 )glsl";
@@ -210,23 +210,43 @@ private:
     }
 
     void processMesh(aiMesh *mesh, const aiScene *scene) {
+    unsigned int baseIndex = vertices.size(); 
+
         for(unsigned int i = 0; i < mesh->mNumVertices; i++) {
             Vertex vertex;
-            vertex.Position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+            vertex.Position = glm::vec3(
+                mesh->mVertices[i].x,
+                mesh->mVertices[i].y,
+                mesh->mVertices[i].z
+            );
+
             if (mesh->HasNormals()) {
-                vertex.Normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+                vertex.Normal = glm::vec3(
+                    mesh->mNormals[i].x,
+                    mesh->mNormals[i].y,
+                    mesh->mNormals[i].z
+                );
+            } else {
+                vertex.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
             }
+
             if(mesh->mTextureCoords[0]) {
-                vertex.TexCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+                vertex.TexCoords = glm::vec2(
+                    mesh->mTextureCoords[0][i].x,
+                    mesh->mTextureCoords[0][i].y
+                );
             } else {
                 vertex.TexCoords = glm::vec2(0.0f, 0.0f);
             }
+
             vertices.push_back(vertex);
         }
+
         for(unsigned int i = 0; i < mesh->mNumFaces; i++) {
             aiFace face = mesh->mFaces[i];
-            for(unsigned int j = 0; j < face.mNumIndices; j++)
-                indices.push_back(face.mIndices[j]);
+            for(unsigned int j = 0; j < face.mNumIndices; j++) {
+                indices.push_back(face.mIndices[j] + baseIndex); // 🔥 CORREÇÃO
+            }
         }
     }
 
@@ -279,22 +299,25 @@ int main() {
 
     glEnable(GL_DEPTH_TEST);
 
-    // Compila os shaders principais
+    // Shaders
     GLuint shaderID = setupShaders();
     
     // Compila o Shader do Grid (simples)
     GLuint gridShaderID = setupGridShader();
 
+    // Objetos
     Mesh suzanne("../assets/Modelos3D/SuzanneSubdiv1.obj");
     suzanne.position = glm::vec3(-2.0f, 1.0f, 0.0f); 
-    suzanne.kd = glm::vec3(1.0f, 0.5f, 0.31f); // Laranja
+    suzanne.kd = glm::vec3(1.0f, 0.5f, 0.31f);
 
     Mesh cube("../assets/Modelos3D/Cube.obj");
     cube.position = glm::vec3(2.0f, 1.0f, 0.0f); 
-    cube.kd = glm::vec3(0.2f, 0.6f, 0.8f); // Azul
+    cube.kd = glm::vec3(0.2f, 0.6f, 0.8f);
 
     sceneObjects.push_back(suzanne);
     sceneObjects.push_back(cube);
+
+    setupGrid();
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = glfwGetTime();
@@ -316,7 +339,6 @@ int main() {
         if(glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.processKeyboard("BACKWARD", deltaTime);
         if(glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.processKeyboard("LEFT", deltaTime);
         if(glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.processKeyboard("RIGHT", deltaTime);
-        glm::mat4 view = camera.getViewMatrix();
 
         if (!sceneObjects.empty()) {
             Mesh& selectedObj = sceneObjects[selectedObjectIndex];
@@ -324,7 +346,6 @@ int main() {
             float rotSpeed = 90.0f * deltaTime; 
             float scaleSpeed = 1.0f * deltaTime;
 
-            // Translação (Setas + I/K)
             if(glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) selectedObj.position.y += moveSpeed;
             if(glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) selectedObj.position.y -= moveSpeed;
             if(glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) selectedObj.position.x += moveSpeed;
@@ -332,14 +353,12 @@ int main() {
             if(glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) selectedObj.position.z -= moveSpeed;
             if(glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) selectedObj.position.z += moveSpeed;
 
-            // Rotação (R + Eixo)
             if(glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
                 if(glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) selectedObj.rotation.x += rotSpeed;
                 if(glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) selectedObj.rotation.y += rotSpeed;
                 if(glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) selectedObj.rotation.z += rotSpeed;
             }
 
-            // Escala (+ e -)
             if(glfwGetKey(window, GLFW_KEY_EQUAL) == GLFW_PRESS) selectedObj.scale += glm::vec3(scaleSpeed);
             if(glfwGetKey(window, GLFW_KEY_MINUS) == GLFW_PRESS) {
                 selectedObj.scale -= glm::vec3(scaleSpeed);
@@ -366,6 +385,8 @@ int main() {
         glUniformMatrix4fv(glGetUniformLocation(shaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
         glUniform3fv(glGetUniformLocation(shaderID, "lightPos"), 1, glm::value_ptr(pointLightPos));
         glUniform3fv(glGetUniformLocation(shaderID, "viewPos"), 1, glm::value_ptr(camera.position));
+
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         for (int i = 0; i < sceneObjects.size(); i++) {
             sceneObjects[i].Draw(shaderID);
@@ -406,8 +427,20 @@ int main() {
 
 // Funções auxiliares
 void drawGrid(GLuint shaderProgram) {
+    glBindVertexArray(gridVAO);
+
+    glm::mat4 model = glm::mat4(1.0f);
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+    glDrawArrays(GL_LINES, 0, gridVertexCount);
+
+    glBindVertexArray(0);
+}
+
+void setupGrid() {
     std::vector<glm::vec3> gridVertices;
     int size = 15;
+
     for (int i = -size; i <= size; i++) {
         gridVertices.push_back(glm::vec3(i, 0, -size));
         gridVertices.push_back(glm::vec3(i, 0, size));
@@ -415,9 +448,11 @@ void drawGrid(GLuint shaderProgram) {
         gridVertices.push_back(glm::vec3(size, 0, i));
     }
 
-    GLuint gridVAO, gridVBO;
+    gridVertexCount = gridVertices.size();
+
     glGenVertexArrays(1, &gridVAO);
     glGenBuffers(1, &gridVBO);
+
     glBindVertexArray(gridVAO);
     glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
     glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(glm::vec3), &gridVertices[0], GL_STATIC_DRAW);
@@ -515,16 +550,37 @@ GLuint setupShaders() {
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
-    
+
+    int success;
+    char infoLog[512];
+
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        std::cout << "ERRO VERTEX SHADER:\n" << infoLog << std::endl;
+    }
+
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
     glCompileShader(fragmentShader);
-    
+
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        std::cout << "ERRO FRAGMENT SHADER:\n" << infoLog << std::endl;
+    }
+
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
-    
+
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+        std::cout << "ERRO LINK SHADER:\n" << infoLog << std::endl;
+    }
+
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
