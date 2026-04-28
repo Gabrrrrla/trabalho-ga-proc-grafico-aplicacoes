@@ -48,10 +48,6 @@ include_directories(${glm_SOURCE_DIR})
 include_directories(${stb_image_SOURCE_DIR})
 
 set(EXERCISES
-    Hello3D
-    HelloCamera
-    HelloOBJ_Gabi
-    HelloPhong
     TrabalhoGA_Gabi_Luisa 
 )
 

@@ -2,6 +2,7 @@
 // Processamento Gráfico: Aplicações
 // Prof. Rossana Queiroz
 
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -28,8 +29,15 @@ using namespace std;
 // Protótipos das funções
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+
 GLuint setupShaders();
+GLuint setupGridShader();
+
 void drawGrid(GLuint shaderProgram);
+void drawLightSource(GLuint shaderProgram);
+
+void checkShaderCompile(GLuint shader, string shaderName);
+void checkProgramLink(GLuint shaderProgram, string shaderName);
 
 // Dimensões da janela
 const GLuint WIDTH = 1024, HEIGHT = 768;
@@ -98,8 +106,9 @@ void main() {
 
 const GLchar* gridFragmentShader = R"glsl(#version 450
 out vec4 color;
+uniform vec4 objectColor;
 void main() {
-    color = vec4(0.5, 0.5, 0.5, 1.0); // Cinza
+    color = objectColor;
 }
 )glsl";
 
@@ -153,6 +162,21 @@ public:
 
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    void DrawWireframe(GLuint shaderID) const {
+         glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, position);
+        model = glm::rotate(model, glm::radians(rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+        model = glm::scale(model, scale);
+
+        glUniformMatrix4fv(glGetUniformLocation(shaderID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
     }
 
@@ -230,7 +254,12 @@ private:
 
 std::vector<Mesh> sceneObjects;
 int selectedObjectIndex = 0; 
-glm::vec3 pointLightPos(0.0f, 5.0f, 2.0f); 
+
+// Posição da luz
+// x = centralizada na cena
+// y = acima dos objetos
+// z = à frente dos objetos, no mesmo lado da câmera
+glm::vec3 pointLightPos(0.0f, 8.0f, 8.0f); 
 
 int main() {
     glfwInit();
@@ -252,16 +281,7 @@ int main() {
     GLuint shaderID = setupShaders();
     
     // Compila o Shader do Grid (simples)
-    GLuint gridVShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(gridVShader, 1, &gridVertexShader, NULL);
-    glCompileShader(gridVShader);
-    GLuint gridFShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(gridFShader, 1, &gridFragmentShader, NULL);
-    glCompileShader(gridFShader);
-    GLuint gridShaderID = glCreateProgram();
-    glAttachShader(gridShaderID, gridVShader);
-    glAttachShader(gridShaderID, gridFShader);
-    glLinkProgram(gridShaderID);
+    GLuint gridShaderID = setupGridShader();
 
     Mesh suzanne("../assets/Modelos3D/SuzanneSubdiv1.obj");
     suzanne.position = glm::vec3(-2.0f, 1.0f, 0.0f); 
@@ -283,9 +303,6 @@ int main() {
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        if(wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        else glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         // Matrizes base
         glm::mat4 projection = perspective ? 
@@ -329,12 +346,19 @@ int main() {
         }
 
         // Renderiza o grid
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
         glUseProgram(gridShaderID);
         glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
         drawGrid(gridShaderID);
 
         // Renderiza os objetos (phong)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+
         glUseProgram(shaderID);
         glUniformMatrix4fv(glGetUniformLocation(shaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(shaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
@@ -345,6 +369,32 @@ int main() {
             sceneObjects[i].Draw(shaderID);
         }
         
+        glDisable(GL_POLYGON_OFFSET_FILL);
+
+        // Renderiza o wireframe sobreposto ao sólido
+        if (wireframe) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+            glUseProgram(gridShaderID);
+            glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+            glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
+            glUniform4f(glGetUniformLocation(gridShaderID, "objectColor"), 0.0f, 0.0f, 0.0f, 1.0f);
+
+            for (int i = 0; i < sceneObjects.size(); i++) {
+                sceneObjects[i].DrawWireframe(gridShaderID);
+            }
+        }
+
+        // Renderiza a fonte de luz como um pequeno círculo
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        glUseProgram(gridShaderID);
+        glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniform4f(glGetUniformLocation(gridShaderID, "objectColor"), 1.0f, 1.0f, 0.2f, 1.0f);
+
+        drawLightSource(gridShaderID);
+
         glfwSwapBuffers(window);
     }
 
@@ -353,7 +403,6 @@ int main() {
 }
 
 // Funções auxiliares
-
 void drawGrid(GLuint shaderProgram) {
     std::vector<glm::vec3> gridVertices;
     int size = 15;
@@ -381,6 +430,47 @@ void drawGrid(GLuint shaderProgram) {
     
     glDeleteBuffers(1, &gridVBO);
     glDeleteVertexArrays(1, &gridVAO);
+}
+
+void drawLightSource(GLuint shaderProgram) {
+    const int segments = 32;
+    const float radius = 0.15f;
+    const float twoPi = 6.28318530718f;
+
+    std::vector<glm::vec3> circleVertices;
+
+    circleVertices.push_back(pointLightPos);
+
+    for (int i = 0; i <= segments; i++) {
+        float angle = twoPi * static_cast<float>(i) / static_cast<float>(segments);
+
+        glm::vec3 vertex = pointLightPos
+            + camera.right * (cos(angle) * radius)
+            + camera.up * (sin(angle) * radius);
+
+        circleVertices.push_back(vertex);
+    }
+
+    GLuint lightVAO, lightVBO;
+
+    glGenVertexArrays(1, &lightVAO);
+    glGenBuffers(1, &lightVBO);
+
+    glBindVertexArray(lightVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, lightVBO);
+    glBufferData(GL_ARRAY_BUFFER, circleVertices.size() * sizeof(glm::vec3), &circleVertices[0], GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+
+    glm::mat4 model = glm::mat4(1.0f);
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+    glDrawArrays(GL_TRIANGLE_FAN, 0, static_cast<GLsizei>(circleVertices.size()));
+
+    glDeleteBuffers(1, &lightVBO);
+    glDeleteVertexArrays(1, &lightVAO);
 }
 
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
@@ -437,4 +527,52 @@ GLuint setupShaders() {
     glDeleteShader(fragmentShader);
 
     return shaderProgram;
+}
+
+GLuint setupGridShader() {
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &gridVertexShader, NULL);
+    glCompileShader(vertexShader);
+    checkShaderCompile(vertexShader, "GRID VERTEX");
+
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &gridFragmentShader, NULL);
+    glCompileShader(fragmentShader);
+    checkShaderCompile(fragmentShader, "GRID FRAGMENT");
+
+    GLuint shaderProgram = glCreateProgram();
+
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+    checkProgramLink(shaderProgram, "GRID");
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return shaderProgram;
+}
+
+void checkShaderCompile(GLuint shader, string shaderName) {
+    GLint success;
+    GLchar infoLog[512];
+
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+
+    if (!success) {
+        glGetShaderInfoLog(shader, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::" << shaderName << "::COMPILATION_FAILED\n" << infoLog << std::endl;
+    }
+}
+
+void checkProgramLink(GLuint shaderProgram, string shaderName) {
+    GLint success;
+    GLchar infoLog[512];
+
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+
+    if (!success) {
+        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::" << shaderName << "::LINKING_FAILED\n" << infoLog << std::endl;
+    }
 }
