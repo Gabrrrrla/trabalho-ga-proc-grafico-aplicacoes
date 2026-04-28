@@ -48,7 +48,7 @@ include_directories(${glm_SOURCE_DIR})
 include_directories(${stb_image_SOURCE_DIR})
 
 set(EXERCISES
-    TrabalhoGA_Gabi_Luisa //Trabalho GA - Gabriela e Luisa
+    TrabalhoGA_Gabi_Luisa
 )
 
 add_compile_options(-Wno-pragmas)
