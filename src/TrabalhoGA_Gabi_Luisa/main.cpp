@@ -256,6 +256,7 @@ std::vector<Mesh> sceneObjects;
 int selectedObjectIndex = 0; 
 glm::vec3 pointLightPos(0.0f, 5.0f, 2.0f); 
 
+
 int main() {
     glfwInit();
     GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Trabalho GA - Gabriela e Luisa", nullptr, nullptr);
@@ -272,28 +273,30 @@ int main() {
 
     glEnable(GL_DEPTH_TEST);
 
-    // Compila os shaders principais
+    // Shaders
     GLuint shaderID = setupShaders();
     
-    // Compila o Shader do Grid (simples)
     GLuint gridVShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(gridVShader, 1, &gridVertexShader, NULL);
     glCompileShader(gridVShader);
+
     GLuint gridFShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(gridFShader, 1, &gridFragmentShader, NULL);
     glCompileShader(gridFShader);
+
     GLuint gridShaderID = glCreateProgram();
     glAttachShader(gridShaderID, gridVShader);
     glAttachShader(gridShaderID, gridFShader);
     glLinkProgram(gridShaderID);
 
+    // Objetos
     Mesh suzanne("../assets/Modelos3D/SuzanneSubdiv1.obj");
     suzanne.position = glm::vec3(-2.0f, 1.0f, 0.0f); 
-    suzanne.kd = glm::vec3(1.0f, 0.5f, 0.31f); // Laranja
+    suzanne.kd = glm::vec3(1.0f, 0.5f, 0.31f);
 
     Mesh cube("../assets/Modelos3D/Cube.obj");
     cube.position = glm::vec3(2.0f, 1.0f, 0.0f); 
-    cube.kd = glm::vec3(0.2f, 0.6f, 0.8f); // Azul
+    cube.kd = glm::vec3(0.2f, 0.6f, 0.8f);
 
     sceneObjects.push_back(suzanne);
     sceneObjects.push_back(cube);
@@ -310,17 +313,78 @@ int main() {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Primeiro desenha sólido
+        // INPUT (luz + câmera + objeto)
+
+        float lightSpeed = 3.0f * deltaTime;
+
+        if(glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) pointLightPos.x -= lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) pointLightPos.x += lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) pointLightPos.y -= lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) pointLightPos.y += lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) pointLightPos.z -= lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) pointLightPos.z += lightSpeed;
+
+        if(glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.processKeyboard("FORWARD", deltaTime);
+        if(glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.processKeyboard("BACKWARD", deltaTime);
+        if(glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.processKeyboard("LEFT", deltaTime);
+        if(glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.processKeyboard("RIGHT", deltaTime);
+
+        if (!sceneObjects.empty()) {
+            Mesh& selectedObj = sceneObjects[selectedObjectIndex];
+            float moveSpeed = 3.0f * deltaTime;
+            float rotSpeed = 90.0f * deltaTime; 
+            float scaleSpeed = 1.0f * deltaTime;
+
+            if(glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) selectedObj.position.y += moveSpeed;
+            if(glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) selectedObj.position.y -= moveSpeed;
+            if(glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) selectedObj.position.x += moveSpeed;
+            if(glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) selectedObj.position.x -= moveSpeed;
+            if(glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) selectedObj.position.z -= moveSpeed;
+            if(glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) selectedObj.position.z += moveSpeed;
+
+            if(glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+                if(glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) selectedObj.rotation.x += rotSpeed;
+                if(glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) selectedObj.rotation.y += rotSpeed;
+                if(glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) selectedObj.rotation.z += rotSpeed;
+            }
+
+            if(glfwGetKey(window, GLFW_KEY_EQUAL) == GLFW_PRESS) selectedObj.scale += glm::vec3(scaleSpeed);
+            if(glfwGetKey(window, GLFW_KEY_MINUS) == GLFW_PRESS) {
+                selectedObj.scale -= glm::vec3(scaleSpeed);
+                if (selectedObj.scale.x < 0.1f) selectedObj.scale = glm::vec3(0.1f);
+            }
+        }
+
+        // MATRIZES
+        glm::mat4 projection = perspective ? 
+            glm::perspective(glm::radians(45.0f), (float)WIDTH / HEIGHT, 0.1f, 100.0f) :
+            glm::ortho(-6.0f, 6.0f, -4.5f, 4.5f, 0.1f, 100.0f);
+
+        glm::mat4 view = camera.getViewMatrix();
+
+        // GRID
+        glUseProgram(gridShaderID);
+        glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        drawGrid(gridShaderID);
+
+        // OBJETOS (SÓLIDO)
+        glUseProgram(shaderID);
+        glUniformMatrix4fv(glGetUniformLocation(shaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(shaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniform3fv(glGetUniformLocation(shaderID, "lightPos"), 1, glm::value_ptr(pointLightPos));
+        glUniform3fv(glGetUniformLocation(shaderID, "viewPos"), 1, glm::value_ptr(camera.position));
+
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         for (int i = 0; i < sceneObjects.size(); i++) {
             sceneObjects[i].Draw(shaderID);
         }
 
-        // Depois wireframe por cima
+        // WIREFRAME SOBREPOSTO
         if (wireframe) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            glDisable(GL_DEPTH_TEST); // evita z-fighting
+            glDisable(GL_DEPTH_TEST);
 
             for (int i = 0; i < sceneObjects.size(); i++) {
                 sceneObjects[i].Draw(shaderID);
@@ -329,75 +393,6 @@ int main() {
             glEnable(GL_DEPTH_TEST);
         }
 
-        // Matrizes base
-        glm::mat4 projection = perspective ? 
-            glm::perspective(glm::radians(45.0f), (float)WIDTH / HEIGHT, 0.1f, 100.0f) :
-            glm::ortho(-6.0f, 6.0f, -4.5f, 4.5f, 0.1f, 100.0f);
-
-        float lightSpeed = 3.0f * deltaTime;
-
-        if(glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) pointLightPos.x -= lightSpeed;
-        if(glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) pointLightPos.x += lightSpeed;
-
-        if(glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) pointLightPos.y -= lightSpeed;
-        if(glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) pointLightPos.y += lightSpeed;
-
-        if(glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) pointLightPos.z -= lightSpeed;
-        if(glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) pointLightPos.z += lightSpeed;
-        
-        // Câmera WASD
-        if(glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.processKeyboard("FORWARD", deltaTime);
-        if(glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.processKeyboard("BACKWARD", deltaTime);
-        if(glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.processKeyboard("LEFT", deltaTime);
-        if(glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.processKeyboard("RIGHT", deltaTime);
-        glm::mat4 view = camera.getViewMatrix();
-
-        if (!sceneObjects.empty()) {
-            Mesh& selectedObj = sceneObjects[selectedObjectIndex];
-            float moveSpeed = 3.0f * deltaTime;
-            float rotSpeed = 90.0f * deltaTime; 
-            float scaleSpeed = 1.0f * deltaTime;
-
-            // Translação (Setas + I/K)
-            if(glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) selectedObj.position.y += moveSpeed;
-            if(glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) selectedObj.position.y -= moveSpeed;
-            if(glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) selectedObj.position.x += moveSpeed;
-            if(glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) selectedObj.position.x -= moveSpeed;
-            if(glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) selectedObj.position.z -= moveSpeed;
-            if(glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) selectedObj.position.z += moveSpeed;
-
-            // Rotação (R + Eixo)
-            if(glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-                if(glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) selectedObj.rotation.x += rotSpeed;
-                if(glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) selectedObj.rotation.y += rotSpeed;
-                if(glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) selectedObj.rotation.z += rotSpeed;
-            }
-
-            // Escala (+ e -)
-            if(glfwGetKey(window, GLFW_KEY_EQUAL) == GLFW_PRESS) selectedObj.scale += glm::vec3(scaleSpeed);
-            if(glfwGetKey(window, GLFW_KEY_MINUS) == GLFW_PRESS) {
-                selectedObj.scale -= glm::vec3(scaleSpeed);
-                if (selectedObj.scale.x < 0.1f) selectedObj.scale = glm::vec3(0.1f);
-            }
-        }
-
-        // Renderiza o grid
-        glUseProgram(gridShaderID);
-        glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(glGetUniformLocation(gridShaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-        drawGrid(gridShaderID);
-
-        // Renderiza os objetos (phong)
-        glUseProgram(shaderID);
-        glUniformMatrix4fv(glGetUniformLocation(shaderID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(glGetUniformLocation(shaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-        glUniform3fv(glGetUniformLocation(shaderID, "lightPos"), 1, glm::value_ptr(pointLightPos));
-        glUniform3fv(glGetUniformLocation(shaderID, "viewPos"), 1, glm::value_ptr(camera.position));
-
-        for (int i = 0; i < sceneObjects.size(); i++) {
-            sceneObjects[i].Draw(shaderID);
-        }
-        
         glfwSwapBuffers(window);
     }
 
