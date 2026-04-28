@@ -2,6 +2,8 @@
 // Processamento Gráfico: Aplicações
 // Prof. Rossana Queiroz
 
+// Trabalho GA
+
 #include <cmath>
 #include <iostream>
 #include <string>
