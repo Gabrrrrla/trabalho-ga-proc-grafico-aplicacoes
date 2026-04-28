@@ -31,6 +31,10 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 GLuint setupShaders();
 void drawGrid(GLuint shaderProgram);
 
+// Variáveis do grid
+GLuint gridVAO, gridVBO;
+int gridVertexCount;
+
 // Dimensões da janela
 const GLuint WIDTH = 1024, HEIGHT = 768;
 
@@ -49,7 +53,7 @@ out vec3 Normal;
 
 void main() {
     FragPos = vec3(model * vec4(position, 1.0));
-    Normal = mat3(transpose(inverse(model))) * normal;  
+    Normal = normalize(mat3(transpose(inverse(model))) * normal);  
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }
 )glsl";
@@ -184,23 +188,43 @@ private:
     }
 
     void processMesh(aiMesh *mesh, const aiScene *scene) {
+    unsigned int baseIndex = vertices.size(); 
+
         for(unsigned int i = 0; i < mesh->mNumVertices; i++) {
             Vertex vertex;
-            vertex.Position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+            vertex.Position = glm::vec3(
+                mesh->mVertices[i].x,
+                mesh->mVertices[i].y,
+                mesh->mVertices[i].z
+            );
+
             if (mesh->HasNormals()) {
-                vertex.Normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+                vertex.Normal = glm::vec3(
+                    mesh->mNormals[i].x,
+                    mesh->mNormals[i].y,
+                    mesh->mNormals[i].z
+                );
+            } else {
+                vertex.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
             }
+
             if(mesh->mTextureCoords[0]) {
-                vertex.TexCoords = glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+                vertex.TexCoords = glm::vec2(
+                    mesh->mTextureCoords[0][i].x,
+                    mesh->mTextureCoords[0][i].y
+                );
             } else {
                 vertex.TexCoords = glm::vec2(0.0f, 0.0f);
             }
+
             vertices.push_back(vertex);
         }
+
         for(unsigned int i = 0; i < mesh->mNumFaces; i++) {
             aiFace face = mesh->mFaces[i];
-            for(unsigned int j = 0; j < face.mNumIndices; j++)
-                indices.push_back(face.mIndices[j]);
+            for(unsigned int j = 0; j < face.mNumIndices; j++) {
+                indices.push_back(face.mIndices[j] + baseIndex); // 🔥 CORREÇÃO
+            }
         }
     }
 
@@ -274,6 +298,8 @@ int main() {
     sceneObjects.push_back(suzanne);
     sceneObjects.push_back(cube);
 
+    setupGrid();
+
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
@@ -284,13 +310,40 @@ int main() {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        if(wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        else glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        // Primeiro desenha sólido
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        for (int i = 0; i < sceneObjects.size(); i++) {
+            sceneObjects[i].Draw(shaderID);
+        }
+
+        // Depois wireframe por cima
+        if (wireframe) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glDisable(GL_DEPTH_TEST); // evita z-fighting
+
+            for (int i = 0; i < sceneObjects.size(); i++) {
+                sceneObjects[i].Draw(shaderID);
+            }
+
+            glEnable(GL_DEPTH_TEST);
+        }
 
         // Matrizes base
         glm::mat4 projection = perspective ? 
             glm::perspective(glm::radians(45.0f), (float)WIDTH / HEIGHT, 0.1f, 100.0f) :
             glm::ortho(-6.0f, 6.0f, -4.5f, 4.5f, 0.1f, 100.0f);
+
+        float lightSpeed = 3.0f * deltaTime;
+
+        if(glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) pointLightPos.x -= lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) pointLightPos.x += lightSpeed;
+
+        if(glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) pointLightPos.y -= lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) pointLightPos.y += lightSpeed;
+
+        if(glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) pointLightPos.z -= lightSpeed;
+        if(glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) pointLightPos.z += lightSpeed;
         
         // Câmera WASD
         if(glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.processKeyboard("FORWARD", deltaTime);
@@ -355,8 +408,20 @@ int main() {
 // Funções auxiliares
 
 void drawGrid(GLuint shaderProgram) {
+    glBindVertexArray(gridVAO);
+
+    glm::mat4 model = glm::mat4(1.0f);
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+    glDrawArrays(GL_LINES, 0, gridVertexCount);
+
+    glBindVertexArray(0);
+}
+
+void setupGrid() {
     std::vector<glm::vec3> gridVertices;
     int size = 15;
+
     for (int i = -size; i <= size; i++) {
         gridVertices.push_back(glm::vec3(i, 0, -size));
         gridVertices.push_back(glm::vec3(i, 0, size));
@@ -364,23 +429,19 @@ void drawGrid(GLuint shaderProgram) {
         gridVertices.push_back(glm::vec3(size, 0, i));
     }
 
-    GLuint gridVAO, gridVBO;
+    gridVertexCount = gridVertices.size();
+
     glGenVertexArrays(1, &gridVAO);
     glGenBuffers(1, &gridVBO);
+
     glBindVertexArray(gridVAO);
     glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
     glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(glm::vec3), &gridVertices[0], GL_STATIC_DRAW);
-    
+
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-    
-    glm::mat4 model = glm::mat4(1.0f);
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    
-    glDrawArrays(GL_LINES, 0, gridVertices.size());
-    
-    glDeleteBuffers(1, &gridVBO);
-    glDeleteVertexArrays(1, &gridVAO);
+
+    glBindVertexArray(0);
 }
 
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
@@ -423,16 +484,37 @@ GLuint setupShaders() {
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
-    
+
+    int success;
+    char infoLog[512];
+
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        std::cout << "ERRO VERTEX SHADER:\n" << infoLog << std::endl;
+    }
+
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
     glCompileShader(fragmentShader);
-    
+
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        std::cout << "ERRO FRAGMENT SHADER:\n" << infoLog << std::endl;
+    }
+
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
-    
+
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+        std::cout << "ERRO LINK SHADER:\n" << infoLog << std::endl;
+    }
+
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
