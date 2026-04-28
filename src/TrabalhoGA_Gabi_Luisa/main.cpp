@@ -30,6 +30,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 GLuint setupShaders();
 void drawGrid(GLuint shaderProgram);
+void setupGrid();
 
 // Variáveis do grid
 GLuint gridVAO, gridVBO;
